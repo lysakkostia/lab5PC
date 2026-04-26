@@ -3,6 +3,7 @@
 #include <ws2tcpip.h>
 #include <string>
 #include <sstream>
+#include <fstream>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -61,29 +62,31 @@ int main() {
     FD_ZERO( &masterSet );
     FD_SET( serverSocket, &masterSet );
 
-
     while ( true )
     {
         fd_set readSet = masterSet;
 
-        int activity = select( 0, &readSet, nullptr
-            , nullptr, nullptr );
+        int activity = select( 0, &readSet, nullptr,
+        nullptr, nullptr );
         if ( activity == SOCKET_ERROR )
         {
             std::cerr << "select() failed.\n";
             break;
         }
 
-        for ( u_int i = 0; i < readSet.fd_count; i++ ) {
+        for ( u_int i = 0; i < readSet.fd_count; i++ )
+        {
             SOCKET s = readSet.fd_array[i];
 
-            if ( s == serverSocket ) {
+            if ( s == serverSocket )
+            {
                 sockaddr_in clientAddr;
                 int clientAddrLen = sizeof( clientAddr );
-                SOCKET clientSocket = accept( serverSocket, ( struct sockaddr* )&clientAddr, &clientAddrLen );
+                SOCKET clientSocket = accept( serverSocket,
+                    ( struct sockaddr* )&clientAddr, &clientAddrLen );
 
-                if ( clientSocket != INVALID_SOCKET ) {
-
+                if ( clientSocket != INVALID_SOCKET )
+                {
                     u_long clientMode = 1;
                     ioctlsocket( clientSocket, FIONBIO, &clientMode );
 
@@ -92,14 +95,18 @@ int main() {
                     char clientIp[ INET_ADDRSTRLEN ];
                     inet_ntop( AF_INET, &( clientAddr.sin_addr ),
                         clientIp, INET_ADDRSTRLEN );
+
                     std::cout << "New connection accepted from " << clientIp << ":" << ntohs( clientAddr.sin_port ) << "\n";
                 }
-            } else {
+            }
+            else
+            {
 
                 char buffer[ 4096 ];
                 int bytesReceived = recv( s, buffer, sizeof( buffer ) - 1, 0 );
 
-                if ( bytesReceived > 0 ) {
+                if ( bytesReceived > 0 )
+                {
                     buffer[ bytesReceived ] = '\0';
                     std::string request( buffer );
 
@@ -114,14 +121,47 @@ int main() {
                         {
                             path = "/index.html";
                         }
+
                         std::cout << "Parsed Request -> Method: " << method
                                   << " | Path: " << path
                                   << " | Version: " << version << "\n";
+
+                        std::string filepath = "../public" + path;
+                        std::ifstream file( filepath, std::ios::binary );
+
+                        std::string response;
+
+                        if ( file )
+                        {
+
+                            std::ostringstream fileContent;
+                            fileContent << file.rdbuf();
+                            std::string body = fileContent.str();
+
+                            response = "HTTP/1.1 200 OK\r\n";
+                            response += "Content-Type: text/html\r\n";
+                            response += "Content-Length: " + std::to_string( body.size() ) + "\r\n";
+                            response += "Connection: close\r\n\r\n";
+                            response += body;
+                        }
+                        else
+                        {
+                            std::string body = "<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1></body></html>";
+                            response = "HTTP/1.1 404 Not Found\r\n";
+                            response += "Content-Type: text/html\r\n";
+                            response += "Content-Length: " + std::to_string( body.size() ) + "\r\n";
+                            response += "Connection: close\r\n\r\n";
+                            response += body;
+                            std::cout << "File not found. Sending 404 for: " << filepath << "\n";
+                        }
+
+                        send( s, response.c_str(), response.size(), 0 );
                     }
                     else
                     {
                         std::cout << "Unsupported HTTP method: " << method << "\n";
                     }
+
                 }
                 else if ( bytesReceived == 0 )
                 {
