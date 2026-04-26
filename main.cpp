@@ -1,6 +1,9 @@
 #include <iostream>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <string>
+#include <sstream>
+
 #pragma comment(lib, "ws2_32.lib")
 
 #define PORT 8080
@@ -23,7 +26,7 @@ int main() {
 
     u_long mode = 1;
     if ( ioctlsocket( serverSocket, FIONBIO, &mode ) != NO_ERROR )
-        {
+    {
         std::cerr << "ioctlsocket failed.\n";
         closesocket( serverSocket );
         WSACleanup();
@@ -85,16 +88,51 @@ int main() {
                     ioctlsocket( clientSocket, FIONBIO, &clientMode );
 
                     FD_SET( clientSocket, &masterSet );
-                    
+
                     char clientIp[ INET_ADDRSTRLEN ];
                     inet_ntop( AF_INET, &( clientAddr.sin_addr ),
                         clientIp, INET_ADDRSTRLEN );
                     std::cout << "New connection accepted from " << clientIp << ":" << ntohs( clientAddr.sin_port ) << "\n";
                 }
             } else {
-                std::cout << "Client socket activity.\n";
-                closesocket(s);
-                FD_CLR(s, &masterSet);
+
+                char buffer[ 4096 ];
+                int bytesReceived = recv( s, buffer, sizeof( buffer ) - 1, 0 );
+
+                if ( bytesReceived > 0 ) {
+                    buffer[ bytesReceived ] = '\0';
+                    std::string request( buffer );
+
+                    std::istringstream requestStream( request );
+                    std::string method, path, version;
+
+                    requestStream >> method >> path >> version;
+
+                    if ( method == "GET" )
+                    {
+                        if ( path == "/" )
+                        {
+                            path = "/index.html";
+                        }
+                        std::cout << "Parsed Request -> Method: " << method
+                                  << " | Path: " << path
+                                  << " | Version: " << version << "\n";
+                    }
+                    else
+                    {
+                        std::cout << "Unsupported HTTP method: " << method << "\n";
+                    }
+                }
+                else if ( bytesReceived == 0 )
+                {
+                    std::cout << "Client disconnected gracefully.\n";
+                }
+                else
+                {
+                    std::cerr << "recv() failed or connection reset by peer.\n";
+                }
+                closesocket( s );
+                FD_CLR( s, &masterSet );
             }
         }
     }
